@@ -8,7 +8,6 @@ vim.g.have_nerd_font = false
 -- See `:help vim.opt`
 -- NOTE: You can change these options as you wish!
 --  For more options, you can see `:help option-list`
-
 -- Make line numbers default
 vim.opt.number = true
 -- You can also add relative line numbers, to help with jumping.
@@ -75,6 +74,19 @@ vim.opt.confirm = true
 --  See `:help hlsearch`
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
+-- Keymaps for notes and tasks
+local map = vim.keymap.set
+
+-- Note management
+map('n', '<leader>nn', ':e ~/notes/scratch.md<CR>', { desc = 'New [N]ote' })
+map('n', '<leader>nt', ':Template<CR>', { desc = '[N]ote [T]emplate' })
+map('n', '<leader>nf', ':Goyo<CR>', { desc = '[N]ote [F]ocus mode' })
+map('n', '<leader>nl', ':Limelight!!<CR>', { desc = '[N]ote [L]imelight' })
+
+-- Task management
+map('n', '<leader>tt', ':TodoTelescope<CR>', { desc = '[T]odo list' })
+map('n', '<leader>td', ':TodoQuickFix<CR>', { desc = '[T]odo [D]etails' })
+map('n', '<leader>ta', ':TodoTrouble<CR>', { desc = '[T]odo [A]ll' })
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
 
@@ -113,6 +125,46 @@ vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper win
 -- Highlight when yanking (copying) text
 --  Try it with `yap` in normal mode
 --  See `:help vim.highlight.on_yank()`
+
+-- Configure Goyo specifically for markdown files
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'markdown',
+  callback = function()
+    vim.cmd [[
+      function! s:goyo_enter()
+        let g:templates_auto_initialize = 0
+        set conceallevel=2
+        set spell
+      endfunction
+
+      function! s:goyo_leave()
+        let g:templates_auto_initialize = 1
+        set conceallevel=2
+        set spell
+      endfunction
+
+      autocmd! User GoyoEnter nested call <SID>goyo_enter()
+      autocmd! User GoyoLeave nested call <SID>goyo_leave()
+    ]]
+  end,
+})
+
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'GoyoLeave',
+  callback = function()
+    vim.g.templates_auto_initialize = 1 -- Re-enable templates
+  end,
+})
+-- Auto-commands for note-taking
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'markdown',
+  callback = function()
+    -- Enable spell check in markdown files
+    vim.opt_local.spell = true
+    -- Set text width for nice formatting
+    vim.opt_local.textwidth = 80
+  end,
+})
 vim.api.nvim_create_autocmd('TextYankPost', {
   desc = 'Highlight when yanking (copying) text',
   group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
@@ -135,6 +187,109 @@ vim.opt.rtp:prepend(lazypath)
 
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
+  -- Core note-taking
+  {
+    'epwalsh/obsidian.nvim',
+    version = '*',
+    ft = 'markdown',
+    dependencies = { 'nvim-lua/plenary.nvim' },
+    config = function()
+      require('obsidian').setup {
+        dir = '~/notes',
+        notes_subdir = 'notes',
+        daily_notes = {
+          folder = 'journal',
+          date_format = '%Y-%m-%d',
+        },
+        templates = {
+          subdir = 'templates',
+          date_format = '%Y-%m-%d',
+          time_format = '%H:%M',
+        },
+        ui = {
+          enable = true, -- Keep UI features enabled
+        },
+        -- Set recommended markdown settings
+        markdown = {
+          subdirs = { 'notes', 'journal' },
+          link_style = 'markdown',
+        },
+      }
+
+      -- Set recommended conceal level for markdown files
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = 'markdown',
+        callback = function()
+          vim.opt_local.conceallevel = 2 -- Required for Obsidian's syntax features
+          vim.opt_local.spell = true -- Optional: enable spell check
+          vim.opt_local.wrap = true -- Optional: wrap long lines
+        end,
+      })
+    end,
+  },
+
+  -- Distraction-free writing
+  { 'junegunn/goyo.vim' },
+  { 'junegunn/limelight.vim' },
+
+  -- Todo comments
+  {
+    'folke/todo-comments.nvim',
+    dependencies = { 'nvim-lua/plenary.nvim' },
+    opts = {
+      signs = false,
+      keywords = {
+        TODO = { icon = '', color = 'info' },
+        FIX = { icon = '', color = 'error' },
+        NOTE = { icon = '', color = 'hint' },
+      },
+    },
+  },
+
+  -- Markdown support
+  {
+    'preservim/vim-markdown',
+    ft = 'markdown',
+    init = function()
+      vim.g.vim_markdown_conceal = 1
+      vim.g.vim_markdown_conceal_code_blocks = 0
+    end,
+  },
+
+  -- Templates
+  {
+    'aperezdc/vim-template',
+    config = function()
+      -- Set template directory and ensure it exists
+      local template_dir = vim.fn.expand '~/.config/nvim/templates'
+      if vim.fn.isdirectory(template_dir) == 0 then
+        vim.fn.mkdir(template_dir, 'p')
+        -- Create a default markdown template
+        local default_template = template_dir .. '/markdown.tpl'
+        if vim.fn.filereadable(default_template) == 0 then
+          local file = io.open(default_template, 'w')
+          if file then
+            file:write '# ${filename}\n\nCreated: ${date}\n\n## Content\n'
+            file:close()
+          end
+        end
+      end
+
+      vim.g.templates_directory = template_dir
+      vim.g.templates_no_builtin_templates = 1
+      vim.g.templates_global_name_prefix = 'tpl_'
+
+      -- Disable template auto-loading in Goyo mode
+      vim.cmd [[
+      augroup TemplateGoyo
+        autocmd!
+        autocmd User GoyoEnter let g:templates_auto_initialize = 0
+        autocmd User GoyoLeave let g:templates_auto_initialize = 1
+      augroup END
+    ]]
+    end,
+  },
+
   -- NOTE: Plugins can be added with a link (or for a github repo: 'owner/repo' link).
   'tpope/vim-sleuth', -- Detect tabstop and shiftwidth automatically
 
